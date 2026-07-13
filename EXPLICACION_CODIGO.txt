@@ -1,0 +1,115 @@
+================================================================================
+  EXPLICACION DEL CODIGO - Proyecto Concrete (MAX + rVP)
+================================================================================
+
+----------------------------------------------------------------------
+1. DISCRETIZACION (generar_csvs.py)
+----------------------------------------------------------------------
+
+  FORMULA: qcut (cuantiles) - agrupa valores continuos en categorias discretas
+
+  CODIGO:
+    df[var] = pd.qcut(df[var], q=4, labels=False, duplicates='drop')
+
+  EXPLICACION:
+    - Divide cada variable en 4 grupos de igual tamano (cuartiles)
+    - Asigna 0,1,2,3 segun el cuartil
+    - Si hay valores repetidos, ajusta a 3 o 2 categorias
+    - Variables discretizadas: Cement(4), Slag(3), FlyAsh(2), Water(4),
+      Superplasticizer(3), CoarseAgg(4), FineAgg(4), Age(4)
+
+  SPLIT:
+    BEST  = Strength >= 35 MPa (507 registros)
+    WORST = Strength <= 25 MPa (295 registros)
+    Strength se ELIMINA de los CSVs (solo para particionar)
+
+----------------------------------------------------------------------
+2. ENTROPIA H(X) (pipeline_rvp.py, linea ~15)
+----------------------------------------------------------------------
+
+  FORMULA: H(X) = -SUM P(x) * log2 P(x)
+
+  CODIGO:
+    def entropy(probs):
+        total = 0.0
+        for p in probs:
+            if p > 0: total -= p * np.log2(p)
+        return total
+
+----------------------------------------------------------------------
+3. INFORMACION MUTUA (pipeline_rvp.py, linea ~18)
+----------------------------------------------------------------------
+
+  FORMULA: I(X;Y) = SUM SUM P(x,y) * log2( P(x,y) / P(x)P(y) )
+
+  CODIGO (ver pipeline_rvp.py, funcion mutual_info):
+    - Construye tabla de contingencia contando pares (x,y)
+    - Calcula p_xy, p_x, p_y para cada celda
+    - Acumula p_xy * log2(p_xy / (p_x * p_y))
+
+  Para 8 variables: 28 pares calculados
+
+----------------------------------------------------------------------
+4. ARBOL MAX (MI directa) - pipeline_rvp.py, linea ~60
+----------------------------------------------------------------------
+
+  CRITERIO: seleccionar arista de MAYOR MI en cada paso
+
+  Prim MAX:
+    visited = [False]*8; visited[0] = True
+    for each step:
+        buscar arista (u,v) con u visitado, v no visitado, de MAYOR MI
+        visited[v] = True; agregar arista al arbol
+
+  Kruskal MAX:
+    ordenar las 28 aristas por MI descendente
+    UnionFind: aceptar si no forman ciclo
+
+  7 aristas en el arbol final. Prim = Kruskal en ambos.
+
+----------------------------------------------------------------------
+5. METODO rVP - pipeline_rvp.py, linea ~80
+----------------------------------------------------------------------
+
+  FORMULA:
+    1. Construir MST MAX para BEST y WORST
+    2. Calcular distancia de camino entre cada par en el arbol
+    3. SUM(i) = suma de caminos desde nodo i a todos los demas
+    4. Delta(i) = |SUM_BEST(i) - SUM_WORST(i)|
+    5. Si Delta > 0.5 -> variable CRITICA
+
+  RESULTADO (Concrete):
+    Age       -> |Delta|=2.17 (CRITICA - cambia masivamente)
+    FlyAsh    -> |Delta|=1.51 (CRITICA)
+    FineAgg   -> |Delta|=1.13 (CRITICA)
+    Slag      -> |Delta|=0.81 (CRITICA)
+    CoarseAgg -> |Delta|=0.64 (CRITICA)
+    Cement    -> |Delta|=0.51 (CRITICA)
+    Superplasticizer -> |Delta|=0.03 (estable)
+    Water     -> |Delta|=0.02 (estable)
+
+  INTERPRETACION FISICA:
+    - Age (edad de curado) es la mas critica: en concreto fuerte (BEST)
+      importa mucho mas que en concreto debil (WORST)
+    - FlyAsh (ceniza) cambia su rol drasticamente entre grupos
+    - Water y Superplasticizer son estables: su relacion con los demas
+      ingredientes NO depende de la resistencia final
+
+----------------------------------------------------------------------
+6. VISUALIZACION - visual_concrete.py
+----------------------------------------------------------------------
+
+  PANTALLAS:
+    1. Matriz IM BEST (heatmap 8x8)
+    2. Matriz IM WORST (heatmap 8x8)
+    3. Prim MAX BEST paso a paso (7 pasos)
+    4. Kruskal MAX BEST paso a paso (~10 evaluaciones)
+    5. Prim MAX WORST paso a paso (7 pasos)
+    6. Kruskal MAX WORST paso a paso (~10 evaluaciones)
+    7. Comparacion BEST vs WORST (2x2)
+    8. rVP: ranking con barras y tabla
+
+  Cada paso avanza con ENTER en la ventana grafica.
+  Arista azul gruesa = recien agregada/aceptada.
+  Arista roja punteada = rechazada (ciclo).
+================================================================================
