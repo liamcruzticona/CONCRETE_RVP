@@ -273,6 +273,80 @@ criticas=[v for v,_,_,d in ranking if d>umbral]
 plt.figtext(0.5,0.01,f"CRITICAS: {criticas}  ({len(criticas)}/{len(ranking)})",ha='center',fontsize=12,color='#e74c3c',fontweight='bold')
 plt.tight_layout(); wait_for_enter()
 
+# =============================================================================
+# PANTALLA 9: RED BAYESIANA (Grafo Dirigido)
+# =============================================================================
+
+print("\n  >>> Mostrando RED BAYESIANA...")
+
+def calcular_direcciones(variables, data, mst_edges):
+    n = len(data)
+    directed = []
+    for u, v, w in mst_edges:
+        joint = {}
+        for k in range(n):
+            key = (data[k, u], data[k, v])
+            joint[key] = joint.get(key, 0) + 1
+
+        max_pair = None; max_p = -1
+        for (vi_val, vj_val), count in joint.items():
+            p = count / n
+            if p > max_p: max_p = p; max_pair = (vi_val, vj_val)
+
+        vi_val, vj_val = max_pair
+        p_vi = np.sum(data[:, u] == vi_val) / n
+        p_vj = np.sum(data[:, v] == vj_val) / n
+        p_vj_given_vi = max_p / p_vi if p_vi > 0 else 0
+        p_vi_given_vj = max_p / p_vj if p_vj > 0 else 0
+
+        if p_vj_given_vi > p_vi_given_vj:
+            direccion = (variables[u], variables[v])
+        elif p_vi_given_vj > p_vj_given_vi:
+            direccion = (variables[v], variables[u])
+        else:
+            hi, hj = r_b['entropies'][variables[u]], r_b['entropies'][variables[v]]
+            direccion = (variables[u], variables[v]) if hi < hj else (variables[v], variables[u])
+
+        directed.append(direccion)
+    return directed
+
+# Cargar datos crudos otra vez para probabilidades
+def load_raw(fn):
+    with open(fn) as f: lines = f.readlines()
+    h = lines[0].strip().split(',')
+    d = np.array([[int(x) for x in l.strip().split(',')] for l in lines[1:]])
+    return h, d
+
+fig, axes = plt.subplots(1, 2, figsize=(20, 9))
+fig.suptitle("RED BAYESIANA - Grafo Dirigido (DAG)", fontsize=16, fontweight='bold', color='#2c3e50', y=0.98)
+
+for ax_idx, (name, color) in enumerate([("BEST", NODE_GREEN), ("WORST", NODE_BLUE)]):
+    dd = all_data[name]; vl = dd['vars']; edges = dd['pmax']
+    h_raw, d_raw = load_raw(f'd9_concrete_{"B" if name=="BEST" else "W"}.csv')
+    direcciones = calcular_direcciones(vl, d_raw, edges)
+
+    DG = nx.DiGraph()
+    for v in vl: DG.add_node(v)
+    for (u_name, v_name) in direcciones:
+        DG.add_edge(u_name, v_name)
+
+    PP = nx.spring_layout(DG, seed=42, k=3, iterations=100)
+    nx.draw_networkx_nodes(DG, PP, ax=axes[ax_idx], node_color=[color]*len(vl), node_size=2000,
+                           edgecolors=NODE_BORDER, linewidths=2)
+    nx.draw_networkx_labels(DG, PP, ax=axes[ax_idx], labels={v:v for v in vl}, font_size=11,
+                            font_weight='bold', font_color='white')
+    nx.draw_networkx_edges(DG, PP, ax=axes[ax_idx], edge_color=color, width=2.5,
+                           arrows=True, arrowsize=20, arrowstyle='-|>', alpha=0.9,
+                           connectionstyle='arc3,rad=0.1')
+    axes[ax_idx].set_title(f"{name} - Red Bayesiana ({len(edges)} aristas dirigidas)", fontsize=14,
+                           fontweight='bold', color=color)
+    axes[ax_idx].axis('off')
+
+plt.figtext(0.5, 0.02, "Direccion determinada por max P(Xi, Xj) y condicionales",
+            ha='center', fontsize=11, color='#7f8c8d', fontweight='bold')
+plt.figtext(0.5, 0.01, "PRESIONE ENTER para finalizar", ha='center', fontsize=11, color='#7f8c8d', fontweight='bold')
+plt.tight_layout(); wait_for_enter()
+
 print("\n"+"="*70)
 print("  VISUALIZACION COMPLETADA")
 print("="*70)

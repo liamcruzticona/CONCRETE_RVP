@@ -157,6 +157,73 @@ for var, sb, sw, d in ranking:
 criticas = [(v, f'{d:.4f}') for v, _, _, d in ranking if d > umbral]
 print(f"\n  Variables CRITICAS (|Delta| > {umbral}): {criticas}")
 
+# =============================================================================
+# ETAPA 5: RED BAYESIANA - Orientar aristas del MST
+# =============================================================================
+
+print("\n\n" + "=" * 70)
+print("  ETAPA 5: RED BAYESIANA")
+print("  Metodo: Para cada arista del MST, calcular P(Xi,Xj)")
+print("  Estado dominante (max P) -> condicionales -> direccion")
+print("=" * 70)
+
+d_b_raw, d_w_raw = load_dataset("d9_concrete_B.csv"), load_dataset("d9_concrete_W.csv")
+
+def orientar_aristas(header, data, mst_edges, label):
+    variables = header
+    n = len(data)
+
+    print(f"\n  {label}:")
+    print(f"  {'Arista':<35} {'Max P':<8} {'P(vj|vi)':<10} {'P(vi|vj)':<10} {'Direccion'}")
+    print(f"  {'-'*78}")
+
+    directed = []
+    for u, v, w in sorted(mst_edges, key=lambda x: -x[2]):
+        vi_var, vj_var = variables[u], variables[v]
+
+        # Tabla de contingencia
+        joint = {}
+        for k in range(n):
+            key = (data[k, u], data[k, v])
+            joint[key] = joint.get(key, 0) + 1
+
+        # Encontrar estado dominante (maxima probabilidad conjunta)
+        max_pair = None
+        max_p = -1
+        for (vi_val, vj_val), count in joint.items():
+            p = count / n
+            if p > max_p:
+                max_p = p
+                max_pair = (vi_val, vj_val)
+
+        # Calcular condicionales
+        vi_val, vj_val = max_pair
+        p_vi = np.sum(data[:, u] == vi_val) / n
+        p_vj = np.sum(data[:, v] == vj_val) / n
+        p_vj_given_vi = max_p / p_vi if p_vi > 0 else 0  # P(Xj=vj | Xi=vi)
+        p_vi_given_vj = max_p / p_vj if p_vj > 0 else 0  # P(Xi=vi | Xj=vj)
+
+        # Decidir direccion
+        if p_vj_given_vi > p_vi_given_vj:
+            direccion = f"{vi_var} -> {vj_var}"
+        elif p_vi_given_vj > p_vj_given_vi:
+            direccion = f"{vj_var} -> {vi_var}"
+        else:
+            hi, hj = r_b['entropies'][vi_var], r_b['entropies'][vj_var]
+            direccion = f"{vi_var} -> {vj_var}" if hi < hj else f"{vj_var} -> {vi_var}"
+
+        directed.append((vi_var, vj_var, direccion, max_p, max_pair))
+
+        print(f"  {vi_var:<6} -- {vj_var:<20} {max_p:<8.4f} {p_vj_given_vi:<10.4f} {p_vi_given_vj:<10.4f} {direccion}")
+
+    return directed
+
+dir_b = orientar_aristas(h_b, d_b, r_b['prim_max'], "BEST")
+dir_w = orientar_aristas(h_w, d_w, r_w['prim_max'], "WORST")
+
+print(f"\n  RED BAYESIANA BEST:  " + ",  ".join(d for _, _, d, _, _ in dir_b))
+print(f"  RED BAYESIANA WORST: " + ",  ".join(d for _, _, d, _, _ in dir_w))
+
 print("\n" + "=" * 70)
 print("  PIPELINE COMPLETADO")
 print("=" * 70)
