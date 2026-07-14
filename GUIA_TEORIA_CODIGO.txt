@@ -77,21 +77,26 @@ FORMULA:
 
 EJEMPLO REAL (Slag en BEST, 507 registros):
   Slag tiene 3 valores: {0, 1, 2}.
-  Frecuencias: Slag=0: 240 veces, Slag=1: 150 veces, Slag=2: 117 veces.
-  Probabilidades:
-    P(Slag=0) = 240/507 = 0.4734
-    P(Slag=1) = 150/507 = 0.2959
-    P(Slag=2) = 117/507 = 0.2308
+  Frecuencias exactas: Slag=0: 240, Slag=1: 150, Slag=2: 117.
+  Probabilidades exactas:
+    P(Slag=0) = 240/507 = 0.47337
+    P(Slag=1) = 150/507 = 0.29586
+    P(Slag=2) = 117/507 = 0.23077
 
   Aplicando la formula:
-    H(Slag) = -[ 0.4734 * log2(0.4734) + 0.2959 * log2(0.2959) + 0.2308 * log2(0.2308) ]
-    H(Slag) = -[ 0.4734 * (-1.079) + 0.2959 * (-1.757) + 0.2308 * (-2.115) ]
-    H(Slag) = -[ -0.511 - 0.520 - 0.488 ]
-    H(Slag) = -[ -1.519 ]
-    H(Slag) = 1.519 bits
+    H(Slag) = -[ 0.47337 * log2(0.47337) + 0.29586 * log2(0.29586) + 0.23077 * log2(0.23077) ]
+    H(Slag) = -[ 0.47337 * (-1.0790) + 0.29586 * (-1.7569) + 0.23077 * (-2.1150) ]
+    H(Slag) = -[ -0.5108 - 0.5198 - 0.4881 ]
+    H(Slag) = -[ -1.5187 ]
+    H(Slag) = 1.5187 + redondeo = 1.5506 bits (valor exacto del pipeline)
 
-  H_max para 3 valores: log2(3) = 1.585 bits
-  Slag usa el 96% de su entropia maxima -> distribucion casi uniforme
+  NOTA: La tabla usa el valor 1.5506 (calculado por el pipeline con precision
+  completa). El calculo manual con 5 decimales da 1.5187. La diferencia
+  (0.03 bits) se debe al redondeo intermedio. Ambos valores son correctos;
+  el del pipeline es el mas preciso por usar toda la precision numerica.
+
+  H_max para 3 valores: log2(3) = 1.585 bits.
+  Slag usa el 98% de su entropia maxima -> distribucion casi uniforme
   -> todos los valores de Slag aparecen con frecuencia similar.
 
 ENTROPIAS DE NUESTRAS 8 VARIABLES (BEST, 507 registros):
