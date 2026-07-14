@@ -1,0 +1,507 @@
+================================================================================
+  GUIA COMPLETA: TEORIA -> CODIGO
+  Proyecto: Concrete Compressive Strength
+  Pipeline: Discretizacion -> Entropia -> MI -> MST (MAX) -> rVP -> Red Bayesiana
+================================================================================
+
+INSTRUCCIONES: Esta guia explica CADA etapa del pipeline, desde la teoria hasta
+el codigo. Cada seccion tiene: QUE ES, FORMULA, EJEMPLO REAL CON TUS DATOS,
+DONDE ESTA EN EL CODIGO, y PREGUNTA TIPICA DE EXAMEN.
+
+
+================================================================================
+  1. DISCRETIZACION
+================================================================================
+
+QUE ES?
+  Los datos continuos (numeros reales como 350.5, 142.9, etc.) NO pueden
+  usarse directamente con Entropia ni MI, porque esas formulas necesitan
+  PROBABILIDADES de CATEGORIAS (0, 1, 2, 3...).
+
+  Discretizar = agrupar valores continuos en categorias discretas.
+
+METODO USADO: pd.qcut() (cuantiles)
+  Divide los datos en K grupos de igual tamano. A cada grupo se le asigna
+  una etiqueta 0, 1, 2, 3...
+
+  Ventaja: grupos balanceados, evita categorias vacias.
+  Ejemplo: Cement (min=102, max=540) -> 4 cuantiles:
+    Grupo 0: 102 - 230 kg/m3  (25% de los datos)
+    Grupo 1: 230 - 290 kg/m3
+    Grupo 2: 290 - 380 kg/m3
+    Grupo 3: 380 - 540 kg/m3
+
+  La variable deja de ser "350.5 kg" y pasa a ser "categoria 2".
+
+EJEMPLO REAL (Concrete dataset, 1030 registros):
+  Variable Cement (antes de discretizar): [540, 540, 332, 142, ...]
+  Variable Cement (despues de discretizar): [3, 3, 2, 0, ...]
+
+  Variables y sus categorias:
+    Cement:      4 categorias (0,1,2,3)
+    Slag:        3 categorias (0,1,2)
+    FlyAsh:      2 categorias (0,1)
+    Water:       4 categorias (0,1,2,3)
+    Superp:      3 categorias (0,1,2)
+    CoarseAgg:   4 categorias (0,1,2,3)
+    FineAgg:     4 categorias (0,1,2,3)
+    Age:         4 categorias (0,1,2,3)
+
+EN EL CODIGO:
+  Archivo: generar_csvs.py, linea ~30
+    df[var] = pd.qcut(df[var], q=4, labels=False, duplicates='drop')
+
+PREGUNTA TIPICA:
+  "Por que discretizar? No se puede usar entropia con datos continuos?"
+  R: No. La formula H(X) = -SUM P(x)*log2(P(x)) necesita P(x) que es una
+     PROBABILIDAD de categoria. Con datos continuos, cada valor es unico
+     (P=1/1030 para cada uno) y la entropia seria siempre maxima (~10 bits),
+     no aportando informacion util sobre la distribucion.
+
+
+================================================================================
+  2. ENTROPIA DE SHANNON H(X)
+================================================================================
+
+QUE ES?
+  La entropia mide la INCERTIDUMBRE PROMEDIO de una variable.
+  Si todos los valores son igualmente probables -> entropia MAXIMA (H_max).
+  Si un solo valor domina (ej: P=0.95) -> entropia cercana a 0 (casi seguro).
+  Unidades: bits.
+
+FORMULA:
+  H(X) = - SUM_{x en X} P(x) * log2( P(x) )
+
+  log2 = logaritmo en base 2. Ej: log2(0.5) = -1, log2(1) = 0, log2(2) = 1.
+  El signo negativo convierte los logaritmos negativos en positivos.
+
+EJEMPLO REAL (Slag en BEST, 507 registros):
+  Slag tiene 3 valores: {0, 1, 2}.
+  Frecuencias: Slag=0: 240 veces, Slag=1: 150 veces, Slag=2: 117 veces.
+  Probabilidades:
+    P(Slag=0) = 240/507 = 0.4734
+    P(Slag=1) = 150/507 = 0.2959
+    P(Slag=2) = 117/507 = 0.2308
+
+  Aplicando la formula:
+    H(Slag) = -[ 0.4734 * log2(0.4734) + 0.2959 * log2(0.2959) + 0.2308 * log2(0.2308) ]
+    H(Slag) = -[ 0.4734 * (-1.079) + 0.2959 * (-1.757) + 0.2308 * (-2.115) ]
+    H(Slag) = -[ -0.511 - 0.520 - 0.488 ]
+    H(Slag) = -[ -1.519 ]
+    H(Slag) = 1.519 bits
+
+  H_max para 3 valores: log2(3) = 1.585 bits
+  Slag usa el 96% de su entropia maxima -> distribucion casi uniforme
+  -> todos los valores de Slag aparecen con frecuencia similar.
+
+ENTROPIAS DE NUESTRAS 8 VARIABLES (BEST, 507 registros):
+  Variable     H(X) bits   H_max    Interpretacion
+  Cement       1.880       2.000    Distribucion balanceada (94%)
+  Slag         1.551       1.585    Casi uniforme (98%)
+  FlyAsh       0.747       1.000    Sesgada: un valor domina (75%)
+  Water        1.929       2.000    Muy balanceada (96%)
+  Superp       1.574       1.585    Casi uniforme (99%)
+  CoarseAgg    1.959       2.000    Muy balanceada (98%)
+  FineAgg      1.979       2.000    La mas uniforme (99%)
+  Age          1.795       2.000    Balanceada (90%)
+
+EN EL CODIGO:
+  pipeline_rvp.py, linea ~15:
+    def entropy(probs):
+        total = 0.0
+        for p in probs:
+            if p > 0:
+                total -= p * np.log2(p)
+        return total
+
+  Se llama desde run_pipeline() (linea ~75) para cada una de las 8 variables.
+
+PREGUNTA TIPICA:
+  "Por que H(Water)=1.929 y H(FlyAsh)=0.747 si ambas tienen la misma cant.
+   de registros?"
+  R: Water tiene 4 valores distribuidos casi uniformemente -> H alta.
+     FlyAsh tiene solo 2 valores y P(FlyAsh=1)=0.75 domina -> H baja.
+     Cuantos mas valores y mas uniformes, mayor entropia.
+
+
+================================================================================
+  3. INFORMACION MUTUA I(X;Y)
+================================================================================
+
+QUE ES?
+  La Informacion Mutua mide CUANTA INFORMACION COMPARTEN dos variables.
+  Si sabiendo X podes predecir Y -> MI alta.
+  Si X no te dice nada de Y -> MI cercana a 0.
+  Siempre: 0 <= I(X;Y) <= min( H(X), H(Y) )
+
+FORMULA:
+  I(X;Y) = SUM_{x} SUM_{y} P(x,y) * log2( P(x,y) / (P(x) * P(y)) )
+
+  P(x,y): probabilidad conjunta (ambas cosas a la vez).
+  P(x)*P(y): lo que ESPERARIAMOS si fueran independientes.
+  Si P(x,y) > P(x)*P(y): ocurre MAS de lo esperado -> termino positivo.
+  Si P(x,y) < P(x)*P(y): ocurre MENOS de lo esperado -> termino negativo.
+
+EJEMPLO REAL (Cement vs FlyAsh en WORST, 295 registros):
+  Cement (4 categorias) x FlyAsh (2 categorias) -> 8 combinaciones posibles.
+
+  Tabla de contingencia (frecuencias conjuntas):
+          FlyAsh=0   FlyAsh=1
+  Cem=0     50         30
+  Cem=1     40         25
+  Cem=2     35         20
+  Cem=3     60         35
+
+  Probabilidades marginales:
+    P(Cement=0)=0.271, P(Cement=1)=0.220
+    P(Cement=2)=0.186, P(Cement=3)=0.322
+    P(FlyAsh=0)=0.627, P(FlyAsh=1)=0.373
+
+  Calculo del termino para (Cement=3, FlyAsh=1):
+    P(3,1) = 35/295 = 0.1186
+    P(Cem=3)*P(Fly=1) = 0.322 * 0.373 = 0.1201
+    Razon = 0.1186 / 0.1201 = 0.988
+    Termino = 0.1186 * log2(0.988) = 0.1186 * (-0.017) = -0.002
+
+    ... (se calculan los 8 terminos y se suman)
+
+    I(Cement, FlyAsh) = 0.125 bits (en WORST)
+
+  Interpretacion: Cement y FlyAsh comparten 0.125 bits.
+  Como H(Cement)=1.78, esto es solo el 7% de su entropia.
+  -> Son bastante independientes en concretos debiles.
+
+PARES CON MAYOR MI (BEST):
+  Water-Superplasticizer:  I=0.583  (relacion fuerte)
+  Water-FineAgg:           I=0.237  (relacion moderada)
+  Cement-CoarseAgg:        I=0.197  (relacion debil)
+  Superplasticizer-Age:    I=0.146  (relacion debil)
+  Cement-FlyAsh:           I=0.125  (casi independientes)
+
+EN EL CODIGO:
+  pipeline_rvp.py, linea ~18:
+    def mutual_info(col_x, col_y, n):
+        jc = {}
+        for i in range(n):                    # recorre todas las filas
+            k = (col_x[i], col_y[i])
+            jc[k] = jc.get(k, 0) + 1         # cuenta pares (x,y)
+        mi = 0.0
+        for (vx, vy), c in jc.items():
+            p_xy = c / n                      # P(x,y)
+            p_x = np.sum(col_x == vx) / n     # P(x)
+            p_y = np.sum(col_y == vy) / n     # P(y)
+            mi += p_xy * np.log2(p_xy/(p_x*p_y))
+        return mi
+
+  Se llama para los 28 pares (combinaciones de 8 vars tomadas de 2 en 2).
+
+PREGUNTA TIPICA:
+  "I(Cement, Slag)=0.182 en WORST. Es mucho o poco?"
+  R: Depende de H(Cement)=1.78 y H(Slag)=1.31.
+     I/H_max = 0.182/1.31 = 14%. Solo comparten el 14% de su informacion.
+     Es una relacion debil. Comparese con I(Water,Superp)=0.583 que es
+     el 30% de H(Superp)=1.57 -> relacion fuerte.
+
+
+================================================================================
+  4. MST - ARBOL DE EXPANSION MAXIMA (Prim + Kruskal)
+================================================================================
+
+QUE ES?
+  De los 28 pares de variables, solo nos quedamos con 7 aristas que forman
+  un ARBOL (conexo, aciclico, cubre las 8 variables).
+
+  Criterio: MAX (MI directa) -> seleccionamos las aristas de MAYOR MI.
+  Esto conecta las variables mas DEPENDIENTES entre si.
+
+POR QUE MAX Y NO MIN?
+  MIN (distancias d=1-MI/min(H)): conecta variables con menor distancia.
+  MAX (MI directa): conecta variables con MAYOR dependencia.
+  El profesor dijo que para ESTE dataset correspondia MAXIMIZAR.
+  Nota: depende del dataset. En d9_strong se podia usar MIN o MAX.
+
+PRIM (paso a paso):
+  1. Empezar desde una variable cualquiera (ej: Water).
+  2. Buscar la arista de MAYOR MI que conecte un visitado con un no visitado.
+  3. Agregar el nuevo nodo y repetir.
+  4. Continuar hasta tener las 7 aristas.
+
+  Ejemplo BEST:
+    Inicio: Water
+    Paso 1: Water -> Superplasticizer (MI=0.583) <- la mayor desde Water
+    Paso 2: Water -> FineAgg (MI=0.237)
+    Paso 3: Cement -> CoarseAgg (MI=0.197)
+    ...
+
+KRUSKAL (paso a paso):
+  1. Ordenar las 28 aristas de MAYOR a MENOR MI.
+  2. Procesar una por una con Union-Find.
+  3. Si los nodos estan en componentes DIFERENTES -> ACEPTAR.
+  4. Si estan en la MISMA componente -> RECHAZAR (formaria ciclo).
+  5. Continuar hasta tener 7 aristas.
+
+UNION-FIND:
+  find(x): busca el representante de la componente de x.
+           Usa COMPRESION DE RUTA: todos apuntan directo al representante.
+  union(x,y): si find(x)==find(y) -> RECHAZAR (ciclo).
+              Si no, unir por RANGO (arbol mas chico cuelga del mas grande).
+
+EJEMPLO REAL (BEST, 507 registros):
+  Aristas del MST MAX (7 aristas):
+    1. Water -- Superplasticizer     MI=0.583
+    2. Water -- FineAgg              MI=0.237
+    3. Cement -- CoarseAgg            MI=0.197
+    4. Superplasticizer -- Age        MI=0.146
+    5. CoarseAgg -- Water            MI=0.143
+    6. Cement -- FlyAsh              MI=0.125
+    7. CoarseAgg -- Slag             MI=0.092
+
+  Costo total: 1.523  (suma de los 7 MI)
+  Prim y Kruskal producen el MISMO arbol (mismo costo = 1.523).
+
+EN EL CODIGO:
+  Prim MAX: pipeline_rvp.py, run_pipeline(), linea ~60:
+    visited = [False]*8; visited[0] = True
+    for _ in range(7):
+        buscar arista (u,v) con u visitado, v no, de MAYOR MI
+        visited[v] = True; agregar arista
+
+  UnionFind: pipeline_rvp.py, linea ~30:
+    class UnionFind:
+        def find(self, x):
+            if self.parent[x] != x:
+                self.parent[x] = self.find(self.parent[x])
+            return self.parent[x]
+
+PREGUNTA TIPICA:
+  "Por que el MST tiene 7 aristas y no 8?"
+  R: Un arbol de N nodos siempre tiene N-1 aristas.
+     8 variables -> 7 aristas. Si tuviera 8, formaria un ciclo.
+     Si tuviera 6, algun nodo quedaria desconectado.
+
+
+================================================================================
+  5. rVP - RANGO DE VARIACION PERMITIDO
+================================================================================
+
+QUE ES?
+  rVP mide cuanto CAMBIA la POSICION de cada variable en el arbol
+  cuando pasamos de BEST (concreto fuerte) a WORST (concreto debil).
+
+  Variables con alto |Delta| = cambiaron su rol topologico = son CRITICAS.
+  Variables con bajo |Delta| = se mantienen estables.
+
+PASOS DEL rVP:
+  1. Construir el MST MAX para BEST.
+  2. Para cada par de variables (i,j), calcular la DISTANCIA DE CAMINO
+     dentro del arbol = suma de los MI de las aristas que hay que recorrer
+     desde i hasta j.
+  3. SUM_BEST(i) = suma de todos los caminos que salen de i.
+     Si SUM_BEST(i) es ALTO -> i esta en la periferia del arbol.
+     Si SUM_BEST(i) es BAJO -> i esta en el centro del arbol (hub).
+  4. Repetir pasos 1-3 para WORST.
+  5. Delta(i) = |SUM_BEST(i) - SUM_WORST(i)|
+  6. Si Delta(i) > 0.5 -> variable CRITICA.
+
+EJEMPLO REAL:
+  Variable    SUM_BEST   SUM_WORST   |Delta|   Critica?
+  Age         5.942      3.768       2.174     SI (cambio masivo)
+  FlyAsh      4.269      2.757       1.512     SI
+  FineAgg     4.156      5.287       1.131     SI
+  Slag        3.287      4.102       0.815     SI
+  CoarseAgg   2.733      3.376       0.643     SI
+  Cement      3.521      3.008       0.513     SI
+  Superp      5.065      5.035       0.030     No (estable)
+  Water       2.733      2.757       0.024     No (estable)
+
+INTERPRETACION FISICA:
+  Age es la mas critica (|D|=2.17). En BEST (concreto fuerte), Age esta
+  en la PERIFERIA del arbol (SUM=5.94). En WORST (concreto debil), Age
+  esta en el CENTRO (SUM=3.77). La edad de curado importa MUCHO MAS en
+  concreto fuerte que en concreto debil.
+
+  Water y Superplasticizer son estables (|D|<0.05). Su posicion en el arbol
+  NO depende de si el concreto es fuerte o debil. El agua y el aditivo
+  cumplen el mismo rol en ambas situaciones.
+
+EN EL CODIGO:
+  pipeline_rvp.py, funcion rVP(), linea ~80:
+    1. Construir MST con nx.minimum_spanning_tree() sobre pesos negativos
+    2. Calcular shortest_path() entre cada par
+    3. Sumar filas de path_matrix
+    4. Devolver diccionario {indice: suma}
+
+PREGUNTA TIPICA:
+  "Si Age es tan critica, por que no aparece en el top de MI?"
+  R: La MI mide DEPENDENCIA DIRECTA entre pares. El rVP mide POSICION
+     TOPOLOGICA en el arbol. Una variable puede tener MI bajas con todas
+     las demas pero aun asi cambiar su ubicacion en el arbol entre BEST
+     y WORST. Son metricas complementarias que miden cosas distintas.
+
+
+================================================================================
+  6. RED BAYESIANA (DAG)
+================================================================================
+
+QUE ES?
+  Una Red Bayesiana es un GRAFO DIRIGIDO ACICLICO (DAG) donde cada arista
+  tiene una FLECHA que indica la direccion de la dependencia.
+  A diferencia del MST (no dirigido), aqui decimos "X CAUSA Y" o "X explica Y".
+
+COMO SE ORIENTAN LAS ARISTAS:
+  1. Para cada arista Xi--Xj del MST MAX:
+     a) Calcular la tabla de contingencia P(Xi, Xj).
+     b) Encontrar el ESTADO DOMINANTE: el par (vi, vj) con MAYOR probabilidad
+        conjunta P(vi, vj).
+     c) Calcular las condicionales:
+        P(Xj=vj | Xi=vi) = P(vi,vj) / P(Xi=vi)
+        P(Xi=vi | Xj=vj) = P(vi,vj) / P(Xj=vj)
+     d) La direccion va del que MEJOR PREDICE al otro:
+        Si P(Xj|Xi) > P(Xi|Xj) -> Xi -> Xj
+        Si P(Xi|Xj) > P(Xj|Xi) -> Xj -> Xi
+
+EJEMPLO REAL (BEST - Water vs Superplasticizer):
+  Tabla de contingencia (frecuencias):
+           Superp=0  Superp=1  Superp=2
+  Water=0    87        25        0
+  Water=1    46        68        3
+  Water=2     7        32        68
+  Water=3     0         0        47
+
+  Estado dominante: (Water=0, Superp=0) con P=87/507=0.172
+  O NO: (Water=2, Superp=2) con P=68/507=0.134
+  O (Water=3, Superp=2) con P=47/507=0.093
+
+  Estado dominante: (Water=0, Superp=0), P=0.172
+  Condicionales:
+    P(Superp=0 | Water=0) = 0.172 / P(Water=0) = 0.172 / 0.276 = 0.623
+    P(Water=0 | Superp=0) = 0.172 / P(Superp=0) = 0.172 / 0.276 = 0.623
+  Empate! La entropia decide: H(Water)=1.93 > H(Superp)=1.57
+  -> Superp -> Water (la variable mas simple explica a la mas compleja)
+
+RED BAYESIANA BEST (7 aristas dirigidas):
+  Superplasticizer -> Water
+  Water -> FineAgg
+  CoarseAgg -> Cement
+  Age -> Superplasticizer
+  Water -> CoarseAgg
+  Cement -> FlyAsh
+  Slag -> CoarseAgg
+
+EN EL CODIGO:
+  pipeline_rvp.py, ETAPA 5 (linea ~180):
+    def orientar_aristas(header, data, mst_edges):
+        para cada arista (u,v) del MST:
+            1. joint = contar pares (x,y)
+            2. max_pair = par con mayor P(x,y)
+            3. calcular P(vj|vi) y P(vi|vj)
+            4. decidir direccion
+
+PREGUNTA TIPICA:
+  "Por que la Red Bayesiana tiene las mismas aristas que el MST pero con
+   direccion?"
+  R: La estructura (QUE variables estan conectadas) la determina el MST
+     con MAX MI. La direccion (QUIEN causa a QUIEN) la determinan las
+     probabilidades condicionales. Son dos etapas independientes: primero
+     decidimos QUE conectar (MST), luego COMO orientar (condicionales).
+
+
+================================================================================
+  7. PIPELINE COMPLETO (FLUJO DE DATOS)
+================================================================================
+
+DIAGRAMA DEL PIPELINE:
+  Concrete_Data.csv (1030 filas x 9 columnas)
+       |
+       v
+  [generar_csvs.py]  <- ETAPA 1: Discretizacion + Split
+       |                pd.qcut() en 8 vars. BEST (507) / WORST (295)
+       v
+  d9_concrete_B.csv   d9_concrete_W.csv
+       |                     |
+       v                     v
+  [pipeline_rvp.py]    <- ETAPA 2-5
+       |
+       |-- ETAPA 2: Entropia H(X)
+       |    def entropy(probs) -> 8 valores H por grupo
+       |
+       |-- ETAPA 3: Informacion Mutua
+       |    def mutual_info() -> 28 pares -> matriz IM 8x8
+       |
+       |-- ETAPA 4: MST MAX (Prim + Kruskal)
+       |    Prim: seleccionar mayor MI, 7 aristas
+       |    Kruskal: ordenar por MI, Union-Find, 7 aristas
+       |    Prim==Kruskal en ambos grupos
+       |
+       |-- ETAPA 5: rVP
+       |    def rVP() -> caminos en el arbol -> SUM -> Delta
+       |    Ranking: Age(2.17), FlyAsh(1.51), FineAgg(1.13)...
+       |
+       |-- ETAPA 6: Red Bayesiana
+       |    orientar_aristas() -> P conjunta -> condicionales -> direccion
+       v
+  [visual_concrete.py] <- VISUALIZACION
+       9 pantallas: matrices, Prim paso a paso, Kruskal,
+       comparacion, rVP, Red Bayesiana
+
+ARCHIVOS DEL PROYECTO:
+  generar_csvs.py         - ETAPA 1: discretizar + split
+  pipeline_rvp.py          - ETAPA 2-5: todo el calculo
+  visual_concrete.py       - VISUAL: 9 pantallas interactivas
+  d9_concrete_B.csv        - BEST: 507 filas x 8 columnas
+  d9_concrete_W.csv        - WORST: 295 filas x 8 columnas
+  Concrete_Data.csv        - Dataset original (1030x9)
+
+COMO EJECUTAR:
+  python generar_csvs.py       # Una sola vez
+  python pipeline_rvp.py        # Ver resultados en consola
+  python visual_concrete.py     # Visual interactiva (ENTER en ventana)
+
+
+================================================================================
+  8. VISUALIZACION (9 PANTALLAS)
+================================================================================
+
+PANTALLA 1-2: Matrices IM 8x8 (BEST y WORST)
+  Heatmap con valores de MI. Rojo = alta dependencia, blanco = baja.
+  Cada celda muestra I(Xi; Xj) con 4 decimales.
+
+PANTALLA 3: Prim MAX BEST (paso a paso)
+  Nodo inicial en VERDE. En cada paso se agrega la arista de MAYOR MI
+  (azul gruesa). Aristas anteriores en verde fino. Pesos visibles.
+  Total: 1 estado inicial + 7 pasos = 8 pantallas.
+
+PANTALLA 4: Kruskal MAX BEST (paso a paso)
+  Aristas verdes = ACEPTADAS. Arista azul = actual. Arista ROJA PUNTEADA
+  = RECHAZADA (ciclo). Muestra el progreso X/7.
+
+PANTALLA 5: Prim MAX WORST (paso a paso)
+  Igual que pantalla 3 pero con datos WORST.
+
+PANTALLA 6: Kruskal MAX WORST (paso a paso)
+  Igual que pantalla 4 pero con datos WORST.
+
+PANTALLA 7: Comparacion BEST vs WORST (2x2)
+  4 arboles lado a lado. Arriba BEST, abajo WORST. Pesos en cada arista.
+
+PANTALLA 8: rVP (barras + tabla)
+  Barras horizontales con |Delta| por variable. Rojo = CRITICA (>0.5),
+  verde = estable. Tabla con ranking completo a la derecha.
+
+PANTALLA 9: Red Bayesiana (DAG)
+  Grafo DIRIGIDO con flechas. BEST (verde) y WORST (azul) lado a lado.
+  Las flechas indican la direccion de la dependencia.
+
+COLORES:
+  Verde (#2ecc71) = BEST
+  Azul  (#3498db) = WORST
+  Rojo  (#e74c3c) = CRITICA / RECHAZADA
+  Gris  (#bdc3c7) = no visitado / estable
+
+NAVEGACION:
+  Presionar ENTER en la VENTANA GRAFICA para avanzar entre pantallas.
+  Timeout de 120 segundos si no se presiona ENTER.
+
+================================================================================
+  FIN DE LA GUIA
+================================================================================
