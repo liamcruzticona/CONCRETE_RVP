@@ -38,7 +38,7 @@ for var in independent_vars:
     print(f"    {var}: {vals} ({len(vals)} categorias)")
 
 best = df[df['Strength'] >= 35]
-worst = df[df['Strength'] <= 25]
+worst = df[df['Strength'] < 35]
 
 best_vars = best[independent_vars]
 worst_vars = worst[independent_vars]

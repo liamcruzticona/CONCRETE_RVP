@@ -279,34 +279,32 @@ plt.tight_layout(); wait_for_enter()
 
 print("\n  >>> Mostrando RED BAYESIANA...")
 
-def calcular_direcciones(variables, data, mst_edges):
+def calcular_direcciones_bic(variables, data, mst_edges):
     n = len(data)
     directed = []
     for u, v, w in mst_edges:
         joint = {}
         for k in range(n):
-            key = (data[k, u], data[k, v])
-            joint[key] = joint.get(key, 0) + 1
+            key = (data[k, u], data[k, v]); joint[key] = joint.get(key, 0) + 1
+        vals_i = sorted(set(data[:, u])); vals_j = sorted(set(data[:, v]))
 
-        max_pair = None; max_p = -1
-        for (vi_val, vj_val), count in joint.items():
-            p = count / n
-            if p > max_p: max_p = p; max_pair = (vi_val, vj_val)
+        log_L_A = 0.0
+        for (vi, vj), count in joint.items():
+            p_cond = count / np.sum(data[:, u] == vi)
+            if p_cond > 0: log_L_A += count * np.log(p_cond)
+        k_A = (len(vals_i) - 1) * len(vals_j)
+        BIC_A = -2 * log_L_A + k_A * np.log(n)
 
-        vi_val, vj_val = max_pair
-        p_vi = np.sum(data[:, u] == vi_val) / n
-        p_vj = np.sum(data[:, v] == vj_val) / n
-        p_vj_given_vi = max_p / p_vi if p_vi > 0 else 0
-        p_vi_given_vj = max_p / p_vj if p_vj > 0 else 0
+        log_L_B = 0.0
+        for (vi, vj), count in joint.items():
+            p_cond = count / np.sum(data[:, v] == vj)
+            if p_cond > 0: log_L_B += count * np.log(p_cond)
+        k_B = (len(vals_j) - 1) * len(vals_i)
+        BIC_B = -2 * log_L_B + k_B * np.log(n)
 
-        if p_vj_given_vi > p_vi_given_vj:
-            direccion = (variables[u], variables[v])
-        elif p_vi_given_vj > p_vj_given_vi:
-            direccion = (variables[v], variables[u])
-        else:
-            hi, hj = r_b['entropies'][variables[u]], r_b['entropies'][variables[v]]
-            direccion = (variables[u], variables[v]) if hi < hj else (variables[v], variables[u])
-
+        if BIC_A < BIC_B: direccion = (variables[u], variables[v])
+        elif BIC_B < BIC_A: direccion = (variables[v], variables[u])
+        else: direccion = (variables[u], variables[v]) if BIC_A <= BIC_B else (variables[v], variables[u])
         directed.append(direccion)
     return directed
 
@@ -323,7 +321,7 @@ fig.suptitle("RED BAYESIANA - Grafo Dirigido (DAG)", fontsize=16, fontweight='bo
 for ax_idx, (name, color) in enumerate([("BEST", NODE_GREEN), ("WORST", NODE_BLUE)]):
     dd = all_data[name]; vl = dd['vars']; edges = dd['pmax']
     h_raw, d_raw = load_raw(f'd9_concrete_{"B" if name=="BEST" else "W"}.csv')
-    direcciones = calcular_direcciones(vl, d_raw, edges)
+    direcciones = calcular_direcciones_bic(vl, d_raw, edges)
 
     DG = nx.DiGraph()
     for v in vl: DG.add_node(v)
@@ -338,7 +336,7 @@ for ax_idx, (name, color) in enumerate([("BEST", NODE_GREEN), ("WORST", NODE_BLU
     nx.draw_networkx_edges(DG, PP, ax=axes[ax_idx], edge_color=color, width=2.5,
                            arrows=True, arrowsize=20, arrowstyle='-|>', alpha=0.9,
                            connectionstyle='arc3,rad=0.1')
-    axes[ax_idx].set_title(f"{name} - Red Bayesiana ({len(edges)} aristas dirigidas)", fontsize=14,
+    axes[ax_idx].set_title(f"{name} - Red Bayesiana BIC ({len(edges)} aristas)", fontsize=14,
                            fontweight='bold', color=color)
     axes[ax_idx].axis('off')
 

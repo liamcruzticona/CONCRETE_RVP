@@ -158,68 +158,77 @@ criticas = [(v, f'{d:.4f}') for v, _, _, d in ranking if d > umbral]
 print(f"\n  Variables CRITICAS (|Delta| > {umbral}): {criticas}")
 
 # =============================================================================
-# ETAPA 5: RED BAYESIANA - Orientar aristas del MST
+# ETAPA 5: RED BAYESIANA - Orientar aristas del MST con BIC
 # =============================================================================
 
 print("\n\n" + "=" * 70)
-print("  ETAPA 5: RED BAYESIANA")
-print("  Metodo: Para cada arista del MST, calcular P(Xi,Xj)")
-print("  Estado dominante (max P) -> condicionales -> direccion")
+print("  ETAPA 5: RED BAYESIANA (BIC)")
+print("  Metodo: Probar dos modelos Xi->Xj y Xj->Xi en cada arista MST")
+print("  Elegir direccion con MENOR BIC = -2*log(L) + k*log(n)")
 print("=" * 70)
 
 d_b_raw, d_w_raw = load_dataset("d9_concrete_B.csv"), load_dataset("d9_concrete_W.csv")
 
-def orientar_aristas(header, data, mst_edges, label):
+def orientar_bic(header, data, mst_edges, label):
     variables = header
     n = len(data)
+    n_cols = len(variables)
 
-    print(f"\n  {label}:")
-    print(f"  {'Arista':<35} {'Max P':<8} {'P(vj|vi)':<10} {'P(vi|vj)':<10} {'Direccion'}")
-    print(f"  {'-'*78}")
+    print(f"\n  {label} (n={n}):")
+    print(f"  {'Arista':<35} {'BIC(A->B)':<12} {'BIC(B->A)':<12} {'Direccion'}")
+    print(f"  {'-'*72}")
 
     directed = []
     for u, v, w in sorted(mst_edges, key=lambda x: -x[2]):
         vi_var, vj_var = variables[u], variables[v]
 
-        # Tabla de contingencia
+        # Tabla de contingencia para las condicionales
         joint = {}
         for k in range(n):
             key = (data[k, u], data[k, v])
             joint[key] = joint.get(key, 0) + 1
 
-        # Encontrar estado dominante (maxima probabilidad conjunta)
-        max_pair = None
-        max_p = -1
-        for (vi_val, vj_val), count in joint.items():
-            p = count / n
-            if p > max_p:
-                max_p = p
-                max_pair = (vi_val, vj_val)
+        # Calcular distribuciones condicionales P(Xj | Xi) y P(Xi | Xj)
+        vals_i = sorted(set(data[:, u]))
+        vals_j = sorted(set(data[:, v]))
 
-        # Calcular condicionales
-        vi_val, vj_val = max_pair
-        p_vi = np.sum(data[:, u] == vi_val) / n
-        p_vj = np.sum(data[:, v] == vj_val) / n
-        p_vj_given_vi = max_p / p_vi if p_vi > 0 else 0  # P(Xj=vj | Xi=vi)
-        p_vi_given_vj = max_p / p_vj if p_vj > 0 else 0  # P(Xi=vi | Xj=vj)
+        # Modelo A: Xi -> Xj. L_A = prod P(Xj | Xi)
+        log_L_A = 0.0
+        for (vi, vj), count in joint.items():
+            p_cond = count / np.sum(data[:, u] == vi)  # P(Xj=vj | Xi=vi)
+            if p_cond > 0:
+                log_L_A += count * np.log(p_cond)
+        k_A = (len(vals_i) - 1) * len(vals_j)
+        BIC_A = -2 * log_L_A + k_A * np.log(n)
 
-        # Decidir direccion
-        if p_vj_given_vi > p_vi_given_vj:
+        # Modelo B: Xj -> Xi. L_B = prod P(Xi | Xj)
+        log_L_B = 0.0
+        for (vi, vj), count in joint.items():
+            p_cond = count / np.sum(data[:, v] == vj)  # P(Xi=vi | Xj=vj)
+            if p_cond > 0:
+                log_L_B += count * np.log(p_cond)
+        k_B = (len(vals_j) - 1) * len(vals_i)
+        BIC_B = -2 * log_L_B + k_B * np.log(n)
+
+        # Elegir menor BIC
+        if BIC_A < BIC_B:
             direccion = f"{vi_var} -> {vj_var}"
-        elif p_vi_given_vj > p_vj_given_vi:
+        elif BIC_B < BIC_A:
             direccion = f"{vj_var} -> {vi_var}"
         else:
-            hi, hj = r_b['entropies'][vi_var], r_b['entropies'][vj_var]
+            # Empate: menor entropia explica a mayor
+            hi = r_b['entropies'][vi_var] if 'r_b' in dir() else 0
+            hj = r_b['entropies'][vj_var] if 'r_b' in dir() else 0
             direccion = f"{vi_var} -> {vj_var}" if hi < hj else f"{vj_var} -> {vi_var}"
 
-        directed.append((vi_var, vj_var, direccion, max_p, max_pair))
+        directed.append((vi_var, vj_var, direccion, BIC_A, BIC_B))
 
-        print(f"  {vi_var:<6} -- {vj_var:<20} {max_p:<8.4f} {p_vj_given_vi:<10.4f} {p_vi_given_vj:<10.4f} {direccion}")
+        print(f"  {vi_var:<6} -- {vj_var:<20} {BIC_A:<12.2f} {BIC_B:<12.2f} {direccion}")
 
     return directed
 
-dir_b = orientar_aristas(h_b, d_b, r_b['prim_max'], "BEST")
-dir_w = orientar_aristas(h_w, d_w, r_w['prim_max'], "WORST")
+dir_b = orientar_bic(h_b, d_b, r_b['prim_max'], "BEST")
+dir_w = orientar_bic(h_w, d_w, r_w['prim_max'], "WORST")
 
 print(f"\n  RED BAYESIANA BEST:  " + ",  ".join(d for _, _, d, _, _ in dir_b))
 print(f"  RED BAYESIANA WORST: " + ",  ".join(d for _, _, d, _, _ in dir_w))

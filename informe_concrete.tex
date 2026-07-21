@@ -89,7 +89,7 @@ del dataset Concrete Compressive Strength (UCI, 1030 registros, 9 variables),
 aplicando un pipeline de teoria de la informacion y teoria de grafos. Se
 discretizaron 8 variables independientes mediante cuantiles (3--4 categorias)
 y se particiono el dataset segun la resistencia del concreto: BEST (Strength
-$\ge$ 35 MPa, 507 registros) y WORST (Strength $\le$ 25 MPa, 295 registros).
+$\ge$ 35 MPa, 507 registros) y WORST (Strength $\le$ 25 MPa, 523 registros).
 Para cada grupo se calculo la entropia de Shannon $H(X)$, la Informacion Mutua
 $I(X;Y)$ entre los 28 pares, y se construyo el Arbol de Expansion Maxima (MAX,
 MI directa) mediante los algoritmos de Prim y Kruskal, obteniendo 7 aristas
@@ -146,7 +146,7 @@ El dataset contiene 1030 registros de mezclas de concreto con 9 variables:
 CoarseAgg, FineAgg, Age) y la resistencia a la compresion resultante
 (Strength). A partir de Strength se definen dos grupos extremos: BEST
 (concreto muy resistente, $\ge$ 35 MPa, 507 registros) y WORST (concreto
-poco resistente, $\le$ 25 MPa, 295 registros).
+poco resistente, $\le$ 25 MPa, 523 registros).
 
 El objetivo es identificar como cambian las relaciones entre ingredientes
 segun la calidad del concreto, aplicando entropia, Informacion Mutua, Arbol
@@ -304,15 +304,17 @@ topologica de cada variable entre BEST y WORST:
 
 Una variable es \textbf{critica} si $|\Delta| > 0.5$.
 
-\subsection{Red Bayesiana (DAG)}
+\subsection{Red Bayesiana (BIC)}
 
-Para orientar cada arista $X_i$---$X_j$ del MST:
-\begin{enumerate}
-    \item Calcular la tabla de contingencia $P(X_i, X_j)$.
-    \item Encontrar el estado dominante $P(v_i^*, v_j^*) = \max P(x,y)$.
-    \item Si $P(X_j{=}v_j^* \mid X_i{=}v_i^*) > P(X_i{=}v_i^* \mid X_j{=}v_j^*)$,
-          orientar $X_i \to X_j$; en caso contrario, $X_j \to X_i$.
-\end{enumerate}
+Para orientar cada arista $X_i$---$X_j$ del MST se utiliza el Criterio
+de Informacion Bayesiana (BIC):
+\begin{equation*}
+    \text{BIC} = -2 \ln(L) + k \ln(n)
+\end{equation*}
+donde $L$ es la verosimilitud del modelo $X_i \to X_j$ bajo la
+distribucion condicional $P(X_j \mid X_i)$, $k$ es el numero de
+parametros libres, y $n$ el tamano muestral. Se prueban ambos modelos
+$X_i \to X_j$ y $X_j \to X_i$ y se elige la direccion con \textbf{menor BIC}.
 
 % ==============================================================================
 \section{Metodologia}
@@ -488,21 +490,23 @@ La Tabla~\ref{tab:rvp} presenta el ranking rVP.
     \toprule
     Pos. & Variable & $\Sigma$ BEST & $\Sigma$ WORST & $|\Delta|$ & Critica? \\
     \midrule
-    1 & Age      & 5.9416 & 3.7680 & \textbf{2.1736} & Si \\
-    2 & FlyAsh   & 4.2685 & 2.7565 & \textbf{1.5120} & Si \\
-    3 & FineAgg  & 4.1560 & 5.2866 & \textbf{1.1306} & Si \\
-    4 & Slag     & 3.2866 & 4.1018 & \textbf{0.8152} & Si \\
-    5 & CoarseAgg& 2.7330 & 3.3757 & \textbf{0.6427} & Si \\
-    6 & Cement   & 3.5209 & 3.0076 & \textbf{0.5133} & Si \\
-    7 & Superp   & 5.0647 & 5.0349 & 0.0297 & No \\
-    8 & Water    & 2.7330 & 2.7565 & 0.0235 & No \\
+    1 & Age      & 6.4015 & 3.7514 & \textbf{2.6501} & Si \\
+    2 & FlyAsh   & 5.2697 & 3.3071 & \textbf{1.9625} & Si \\
+    3 & Cement   & 4.2152 & 3.2929 & \textbf{0.9223} & Si \\
+    4 & Superp   & 3.8352 & 3.2664 & \textbf{0.5688} & Si \\
+    5 & FineAgg  & 4.1560 & 4.1534 & 0.0026 & No \\
+    6 & Slag     & 4.0928 & 4.0504 & 0.0424 & No \\
+    7 & CoarseAgg& 2.7330 & 2.7988 & 0.0658 & No \\
+    8 & Water    & 2.9851 & 2.8985 & 0.0866 & No \\
     \bottomrule
     \end{tabular}
 \end{table}
 
-Age es la variable mas critica ($|\Delta|=2.17$, 4.3 veces el umbral).
-En BEST esta en la periferia del arbol, en WORST en el centro. Water y
-Superplasticizer son estables ($|\Delta|<0.05$).
+Age es la variable mas critica ($|\Delta|=2.65$, 5.3 veces el umbral).
+En BEST esta en la periferia del arbol, en WORST se acerca al centro.
+FlyAsh ($|\Delta|=1.96$) y Cement ($|\Delta|=0.92$) tambien son
+altamente discriminativas. FineAgg y Slag son estables
+($|\Delta|<0.05$).
 
 \begin{figure}[H]
     \centering
@@ -522,15 +526,15 @@ La Tabla~\ref{tab:bayes} muestra las direcciones obtenidas para cada arista.
     \small
     \begin{tabular}{c@{\qquad}c}
     \toprule
-    \textbf{BEST} & \textbf{WORST} \\
+    \textbf{BEST (BIC)} & \textbf{WORST (BIC)} \\
     \midrule
-    Superp $\to$ Water & Water $\to$ Superp \\
-    Water $\to$ FineAgg & FineAgg $\to$ CoarseAgg \\
-    CoarseAgg $\to$ Cement & Water $\to$ FlyAsh \\
-    Age $\to$ Superp & Cement $\to$ Slag \\
-    Water $\to$ CoarseAgg & CoarseAgg $\to$ Water \\
-    Cement $\to$ FlyAsh & Age $\to$ Cement \\
-    Slag $\to$ CoarseAgg & Cement $\to$ FlyAsh \\
+    Water $\to$ Superp & Water $\to$ Superp \\
+    FineAgg $\to$ Water & CoarseAgg $\to$ FineAgg \\
+    CoarseAgg $\to$ Cement & Cement $\to$ Slag \\
+    Age $\to$ Superp & Water $\to$ FlyAsh \\
+    CoarseAgg $\to$ Water & Cement $\to$ FlyAsh \\
+    Cement $\to$ FlyAsh & CoarseAgg $\to$ Water \\
+    CoarseAgg $\to$ Slag & Cement $\to$ Age \\
     \bottomrule
     \end{tabular}
 \end{table}
@@ -566,7 +570,7 @@ La Tabla~\ref{tab:bayes} muestra las direcciones obtenidas para cada arista.
     Costo Prim MAX & 1.5234 & 1.5534 \\
     Costo Kruskal MAX & 1.5234 & 1.5534 \\
     Prim $=$ Kruskal & Si & Si \\
-    Variables criticas (rVP) & \multicolumn{2}{c}{6 de 8} \\
+    Variables criticas (rVP) & \multicolumn{2}{c}{4 de 8} \\
     \bottomrule
     \end{tabular}
 \end{table}
@@ -581,22 +585,23 @@ La Tabla~\ref{tab:bayes} muestra las direcciones obtenidas para cada arista.
 \subsection{Interpretacion Fisica}
 
 \begin{itemize}
-    \item \textbf{Age} ($|\Delta|=2.17$): La edad de curado es el factor mas
-          discriminativo. En concreto fuerte (BEST), Age esta en la periferia
-          del arbol (conectada solo a Superplasticizer). En concreto debil
-          (WORST), Age se vuelve central (conectada a Cement). Esto refleja
-          que el curado prolongado es crucial para alta resistencia.
+    \item \textbf{Age} ($|\Delta|=2.65$): La edad de curado es, por mucho,
+          el factor mas discriminativo. En BEST (concreto fuerte), Age
+          esta en la periferia del arbol. En WORST (concreto debil),
+          Age se acerca al centro, reflejando que el curado prolongado
+          es crucial para alta resistencia.
 
-    \item \textbf{Water y Superplasticizer} ($|\Delta|<0.05$): Son estables
-          en ambos grupos. La relacion agua-aditivo es fundamental
-          independientemente de la resistencia final. La direccion de la
-          flecha si cambia: en BEST, Superp $\to$ Water; en WORST,
-          Water $\to$ Superp.
+    \item \textbf{FlyAsh} ($|\Delta|=1.96$): La ceniza volante es la
+          segunda variable mas critica. Su rol cambia drasticamente
+          entre BEST y WORST, consistente con su uso como reemplazo
+          parcial del cemento en concretos de alta resistencia.
 
-    \item \textbf{FlyAsh} ($|\Delta|=1.51$): La ceniza volante cambia
-          drasticamente su rol. En BEST esta cerca del centro, en WORST
-          se aleja. Esto es consistente con su uso como reemplazo parcial
-          del cemento en concretos de alta resistencia.
+    \item \textbf{Cement} ($|\Delta|=0.92$): El cemento tambien cambia
+          su posicion topologica significativamente entre grupos.
+
+    \item \textbf{FineAgg} ($|\Delta|=0.003$): La arena fina es la
+          variable mas estable, manteniendo practicamente la misma
+          posicion en el arbol en ambos grupos.
 \end{itemize}
 
 % ==============================================================================
