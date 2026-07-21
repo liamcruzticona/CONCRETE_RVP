@@ -175,8 +175,8 @@ def orientar_bic(header, data, mst_edges, label):
     n_cols = len(variables)
 
     print(f"\n  {label} (n={n}):")
-    print(f"  {'Arista':<35} {'BIC(A->B)':<12} {'BIC(B->A)':<12} {'Direccion'}")
-    print(f"  {'-'*72}")
+    print(f"  {'Arista':<35} {'BIC(A->B)':<10} {'BIC(B->A)':<10} {'AIC(A->B)':<10} {'AIC(B->A)':<10} {'Direccion'}")
+    print(f"  {'-'*86}")
 
     directed = []
     for u, v, w in sorted(mst_edges, key=lambda x: -x[2]):
@@ -200,6 +200,7 @@ def orientar_bic(header, data, mst_edges, label):
                 log_L_A += count * np.log(p_cond)
         k_A = (len(vals_i) - 1) * len(vals_j)
         BIC_A = -2 * log_L_A + k_A * np.log(n)
+        AIC_A = -2 * log_L_A + 2 * k_A
 
         # Modelo B: Xj -> Xi. L_B = prod P(Xi | Xj)
         log_L_B = 0.0
@@ -209,29 +210,42 @@ def orientar_bic(header, data, mst_edges, label):
                 log_L_B += count * np.log(p_cond)
         k_B = (len(vals_j) - 1) * len(vals_i)
         BIC_B = -2 * log_L_B + k_B * np.log(n)
+        AIC_B = -2 * log_L_B + 2 * k_B
 
-        # Elegir menor BIC
-        if BIC_A < BIC_B:
-            direccion = f"{vi_var} -> {vj_var}"
-        elif BIC_B < BIC_A:
-            direccion = f"{vj_var} -> {vi_var}"
+        # Elegir menor BIC (AIC como respaldo si BIC empata)
+        bic_wins_B = BIC_A < BIC_B  # BIC dice A->B
+        bic_wins_A = BIC_B < BIC_A  # BIC dice B->A
+        aic_wins_B = AIC_A < AIC_B
+        aic_wins_A = AIC_B < AIC_A
+
+        if bic_wins_B and aic_wins_B:
+            direccion = f"{vi_var} -> {vj_var}  (BIC y AIC)"
+        elif bic_wins_A and aic_wins_A:
+            direccion = f"{vj_var} -> {vi_var}  (BIC y AIC)"
+        elif bic_wins_B:
+            direccion = f"{vi_var} -> {vj_var}  (BIC)"
+        elif bic_wins_A:
+            direccion = f"{vj_var} -> {vi_var}  (BIC)"
+        elif aic_wins_B:
+            direccion = f"{vi_var} -> {vj_var}  (AIC)"
+        elif aic_wins_A:
+            direccion = f"{vj_var} -> {vi_var}  (AIC)"
         else:
-            # Empate: menor entropia explica a mayor
-            hi = r_b['entropies'][vi_var] if 'r_b' in dir() else 0
-            hj = r_b['entropies'][vj_var] if 'r_b' in dir() else 0
+            hi = entropies_b[vi_var] if 'entropies_b' in dir() else 0
+            hj = entropies_b[vj_var] if 'entropies_b' in dir() else 0
             direccion = f"{vi_var} -> {vj_var}" if hi < hj else f"{vj_var} -> {vi_var}"
 
-        directed.append((vi_var, vj_var, direccion, BIC_A, BIC_B))
+        directed.append((vi_var, vj_var, direccion))
 
-        print(f"  {vi_var:<6} -- {vj_var:<20} {BIC_A:<12.2f} {BIC_B:<12.2f} {direccion}")
+        print(f"  {vi_var:<6} -- {vj_var:<20} {BIC_A:<10.2f} {BIC_B:<10.2f} {AIC_A:<10.2f} {AIC_B:<10.2f} {direccion}")
 
     return directed
 
 dir_b = orientar_bic(h_b, d_b, r_b['prim_max'], "BEST")
 dir_w = orientar_bic(h_w, d_w, r_w['prim_max'], "WORST")
 
-print(f"\n  RED BAYESIANA BEST:  " + ",  ".join(d for _, _, d, _, _ in dir_b))
-print(f"  RED BAYESIANA WORST: " + ",  ".join(d for _, _, d, _, _ in dir_w))
+print(f"\n  RED BAYESIANA BEST:  " + ",  ".join(d for _, _, d in dir_b))
+print(f"  RED BAYESIANA WORST: " + ",  ".join(d for _, _, d in dir_w))
 
 print("\n" + "=" * 70)
 print("  PIPELINE COMPLETADO")

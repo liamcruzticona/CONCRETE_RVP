@@ -304,7 +304,7 @@ def calcular_direcciones_bic(variables, data, mst_edges):
 
         if BIC_A < BIC_B: direccion = (variables[u], variables[v])
         elif BIC_B < BIC_A: direccion = (variables[v], variables[u])
-        else: direccion = (variables[u], variables[v]) if BIC_A <= BIC_B else (variables[v], variables[u])
+        else: direccion = (variables[u], variables[v])
         directed.append(direccion)
     return directed
 
@@ -336,7 +336,7 @@ for ax_idx, (name, color) in enumerate([("BEST", NODE_GREEN), ("WORST", NODE_BLU
     nx.draw_networkx_edges(DG, PP, ax=axes[ax_idx], edge_color=color, width=2.5,
                            arrows=True, arrowsize=20, arrowstyle='-|>', alpha=0.9,
                            connectionstyle='arc3,rad=0.1')
-    axes[ax_idx].set_title(f"{name} - Red Bayesiana BIC ({len(edges)} aristas)", fontsize=14,
+    axes[ax_idx].set_title(f"{name} - Red Bayesiana (BIC+AIC, {len(edges)} aristas)", fontsize=14,
                            fontweight='bold', color=color)
     axes[ax_idx].axis('off')
 

@@ -304,17 +304,24 @@ topologica de cada variable entre BEST y WORST:
 
 Una variable es \textbf{critica} si $|\Delta| > 0.5$.
 
-\subsection{Red Bayesiana (BIC)}
+\subsection{Red Bayesiana (BIC y AIC)}
 
-Para orientar cada arista $X_i$---$X_j$ del MST se utiliza el Criterio
-de Informacion Bayesiana (BIC):
-\begin{equation*}
-    \text{BIC} = -2 \ln(L) + k \ln(n)
-\end{equation*}
-donde $L$ es la verosimilitud del modelo $X_i \to X_j$ bajo la
-distribucion condicional $P(X_j \mid X_i)$, $k$ es el numero de
-parametros libres, y $n$ el tamano muestral. Se prueban ambos modelos
-$X_i \to X_j$ y $X_j \to X_i$ y se elige la direccion con \textbf{menor BIC}.
+Para orientar cada arista $X_i$---$X_j$ del MST se utilizan dos criterios
+complementarios:
+
+\begin{itemize}
+    \item \textbf{BIC} (Criterio de Informacion Bayesiana):
+          $\text{BIC} = -2 \ln(L) + k \ln(n)$
+    \item \textbf{AIC} (Criterio de Informacion de Akaike):
+          $\text{AIC} = -2 \ln(L) + 2k$
+\end{itemize}
+
+donde $L$ es la verosimilitud del modelo bajo la distribucion condicional,
+$k$ el numero de parametros libres, y $n$ el tamano muestral. Para cada
+arista se prueban ambos modelos $X_i \to X_j$ y $X_j \to X_i$, y se elige
+la direccion con \textbf{menor BIC y/o AIC}. Si ambos criterios coinciden,
+la direccion es robusta. Si difieren, se prioriza BIC por su mayor
+penalizacion a la complejidad en muestras grandes.
 
 % ==============================================================================
 \section{Metodologia}
