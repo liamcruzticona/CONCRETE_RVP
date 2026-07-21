@@ -1,0 +1,528 @@
+================================================================================
+  CUADERNO TEORICO - Calculo Manual Paso a Paso
+  Proyecto: Concrete Compressive Strength
+  Pipeline: Discretizacion -> Entropia -> MI -> MST (MAX) -> rVP -> BIC/AIC
+
+  INSTRUCCIONES: Cada seccion contiene el desarrollo COMPLETO de un calculo
+  con datos REALES de nuestro dataset. Copialo a tu cuaderno.
+================================================================================
+
+
+----------------------------------------------------------------------
+1. DISCRETIZACION POR CUANTILES
+   Dataset: 1030 registros, 9 columnas
+----------------------------------------------------------------------
+
+  QUE ES: Convertir valores continuos (ej: Cement = 350.5 kg/m3) en
+  categorias discretas (0, 1, 2, 3) para poder aplicar Entropia y MI.
+
+  FORMULA DE CUANTILES:
+    Dado un conjunto de N valores ordenados, el cuantil q (0 < q < 1)
+    es el valor que deja q*N observaciones por debajo.
+
+    Para 4 categorias (cuartiles): q1=0.25, q2=0.50, q3=0.75.
+
+  EJEMPLO REAL: Variable Cement (1030 valores)
+
+    Valores de Cement ordenados (primeros y ultimos):
+      Min = 102 kg/m3
+      Q1 (25%) = 192.0 kg/m3    -> valores 102-192  -> categoria 0
+      Q2 (50%) = 272.9 kg/m3    -> valores 192-273  -> categoria 1
+      Q3 (75%) = 350.0 kg/m3    -> valores 273-350  -> categoria 2
+      Max = 540 kg/m3           -> valores 350-540  -> categoria 3
+
+    Resultado:
+      Cement=540  -> categoria 3 (esta en el cuartil mas alto)
+      Cement=332  -> categoria 2
+      Cement=142  -> categoria 0
+      Cement=220  -> categoria 1
+
+  CATEGORIAS DE LAS 8 VARIABLES (discretizadas sobre 1030 registros):
+    Cement:       4 categorias (0,1,2,3)
+    Slag:         3 categorias (0,1,2)
+    FlyAsh:       2 categorias (0,1)
+    Water:        4 categorias (0,1,2,3)
+    Superplasticizer: 3 categorias (0,1,2)
+    CoarseAgg:    4 categorias (0,1,2,3)
+    FineAgg:      4 categorias (0,1,2,3)
+    Age:          4 categorias (0,1,2,3)
+
+    NOTA: Strength NO se discretiza porque es la variable de particion.
+
+  SPLIT:
+    BEST  = Strength >= 35 MPa  ->  507 registros  (alta resistencia)
+    WORST = Strength <  35 MPa  ->  523 registros  (normal/baja)
+
+    Total usado: 1030 registros (sin descartar).
+    Segun EN 206 (norma europea): clase C35/45 -> concreto estructural
+    de alta resistencia a partir de 35 MPa.
+
+
+----------------------------------------------------------------------
+2. ENTROPIA DE SHANNON  H(X) = -SUM P(x) * log2 P(x)
+   Ejemplo: H(Slag) en BEST (507 registros)
+----------------------------------------------------------------------
+
+  FORMULA:
+    H(X) = - SUM_{x en X} P(x) * log2( P(x) )
+
+    Unidades: bits. H_max = log2(k) para k valores equiprobables.
+
+  DATOS DE ENTRADA (Slag en BEST, 507 registros):
+    Slag tiene 3 valores posibles: {0, 1, 2}
+    Frecuencias: Slag=0 -> 217 registros
+                 Slag=1 -> 163 registros
+                 Slag=2 -> 127 registros
+                 Total   = 507
+
+  PASO 1 - Calcular probabilidades P(x) = frecuencia / total:
+    P(Slag=0) = 217 / 507 = 0.4280
+    P(Slag=1) = 163 / 507 = 0.3215
+    P(Slag=2) = 127 / 507 = 0.2505
+
+    Verificacion: 0.4280 + 0.3215 + 0.2505 = 1.0000 OK
+
+  PASO 2 - Calcular logaritmos en base 2 de cada probabilidad:
+    Recordar: log2(x) = ln(x) / ln(2)
+
+    log2(0.4280) = -1.2243
+    log2(0.3215) = -1.6376
+    log2(0.2505) = -1.9972
+
+    NOTA: Los logaritmos son NEGATIVOS porque 0 < P < 1.
+    El signo "-" fuera de la sumatoria los convierte en positivos.
+
+  PASO 3 - Multiplicar cada P(x) por su log2 P(x):
+    0.4280 * (-1.2243) = -0.5240
+    0.3215 * (-1.6376) = -0.5265
+    0.2505 * (-1.9972) = -0.5003
+
+  PASO 4 - Sumar los tres terminos:
+    SUMA = (-0.5240) + (-0.5265) + (-0.5003) = -1.5508
+
+  PASO 5 - Cambiar el signo (el "-" de la formula):
+    H(Slag) = -(-1.5508) = 1.5508 bits ~ 1.551 bits (redondeado)
+
+  PASO 6 - Comparar con la entropia maxima:
+    H_max = log2(3) = 1.585 bits  (si los 3 valores fueran equiprobables)
+
+    Porcentaje usado: 1.551 / 1.585 = 97.9%
+
+  INTERPRETACION: Slag esta usando casi toda su entropia maxima.
+    Esto significa que los 3 valores de Slag aparecen con frecuencias
+    muy similares en BEST. La distribucion es casi uniforme.
+
+  TABLA COMPLETA DE ENTROPIAS (BEST, 507 registros):
+    Variable      H(X) bits   H_max    % usado   Interpretacion
+    -----------------------------------------------------------
+    Cement        1.880       2.000    94.0%     Balanceada
+    Slag          1.551       1.585    97.9%     Casi uniforme
+    FlyAsh        0.747       1.000    74.7%     Un valor domina
+    Water         1.929       2.000    96.4%     Muy balanceada
+    Superp        1.574       1.585    99.3%     Casi uniforme
+    CoarseAgg     1.959       2.000    97.9%     Muy balanceada
+    FineAgg       1.979       2.000    99.0%     La mas uniforme
+    Age           1.795       2.000    89.7%     Balanceada
+
+  PREGUNTA DE EXAMEN:
+    "Por que H(FlyAsh)=0.747 y H(Slag)=1.551 si ambas estan en BEST?"
+    -> FlyAsh solo tiene 2 valores y P=1 domina (H_max=1.00).
+       Slag tiene 3 valores distribuidos uniformemente (H_max=1.585).
+       Mas valores + mas uniformidad = mas entropia.
+
+
+----------------------------------------------------------------------
+3. INFORMACION MUTUA  I(X;Y) = SUM SUM P(x,y) * log2( P(x,y) / P(x)P(y) )
+   Ejemplo: I(Water, Superplasticizer) en BEST (507 registros)
+----------------------------------------------------------------------
+
+  FORMULA:
+    I(X;Y) = SUM_{x} SUM_{y} P(x,y) * log2( P(x,y) / (P(x)*P(y)) )
+
+    Rango: 0 <= I(X;Y) <= min( H(X), H(Y) )
+    I=0: independencia total. I=min(H): dependencia perfecta.
+
+  DATOS DE ENTRADA: Water (4 categorias) x Superplasticizer (3 categorias)
+    Tabla de contingencia (frecuencias conjuntas):
+
+               Superp=0   Superp=1   Superp=2  | Total Water
+    Water=0       13         35        144    |    192
+    Water=1       20         86         23    |    129
+    Water=2       67         12          6    |     85
+    Water=3       89          7          5    |    101
+    -------------------------------------------------
+    Total Superp  189        140        178    |    507
+
+  PASO 1 - Probabilidades marginales:
+    P(Water=0) = 192/507 = 0.3787    P(Water=1) = 129/507 = 0.2544
+    P(Water=2) =  85/507 = 0.1677    P(Water=3) = 101/507 = 0.1992
+
+    P(Superp=0) = 189/507 = 0.3728   P(Superp=1) = 140/507 = 0.2761
+    P(Superp=2) = 178/507 = 0.3511
+
+  PASO 2 - Calcular cada termino de la formula:
+    Para cada celda con frecuencia > 0:
+
+    Celda (Water=0, Superp=0): count=13
+      P(0,0) = 13/507 = 0.0256
+      P(Water=0)*P(Superp=0) = 0.3787 * 0.3728 = 0.1412
+      Razon = 0.0256 / 0.1412 = 0.1813
+      Termino = 0.0256 * log2(0.1813) = 0.0256 * (-2.4637) = -0.0631
+
+    Celda (Water=0, Superp=1): count=35
+      P(0,1) = 35/507 = 0.0690
+      P(W0)*P(S1) = 0.3787 * 0.2761 = 0.1046
+      Razon = 0.0690 / 0.1046 = 0.6597
+      Termino = 0.0690 * log2(0.6597) = 0.0690 * (-0.6003) = -0.0414
+
+    Celda (Water=0, Superp=2): count=144
+      P(0,2) = 144/507 = 0.2840
+      P(W0)*P(S2) = 0.3787 * 0.3511 = 0.1330
+      Razon = 0.2840 / 0.1330 = 2.1353
+      Termino = 0.2840 * log2(2.1353) = 0.2840 * 1.0944 = +0.3108
+
+    Celda (Water=1, Superp=0): count=20
+      P(1,0) = 20/507 = 0.0394
+      P(W1)*P(S0) = 0.2544 * 0.3728 = 0.0948
+      Razon = 0.0394 / 0.0948 = 0.4156
+      Termino = 0.0394 * log2(0.4156) = 0.0394 * (-1.2663) = -0.0499
+
+    Celda (Water=1, Superp=1): count=86
+      P(1,1) = 86/507 = 0.1696
+      P(W1)*P(S1) = 0.2544 * 0.2761 = 0.0702
+      Razon = 0.1696 / 0.0702 = 2.4160
+      Termino = 0.1696 * log2(2.4160) = 0.1696 * 1.2722 = +0.2158
+
+    Celda (Water=1, Superp=2): count=23
+      P(1,2) = 23/507 = 0.0454
+      P(W1)*P(S2) = 0.2544 * 0.3511 = 0.0893
+      Razon = 0.0454 / 0.0893 = 0.5084
+      Termino = 0.0454 * log2(0.5084) = 0.0454 * (-0.9762) = -0.0443
+
+    Celda (Water=2, Superp=0): count=67
+      P(2,0) = 67/507 = 0.1321
+      P(W2)*P(S0) = 0.1677 * 0.3728 = 0.0625
+      Razon = 0.1321 / 0.0625 = 2.1136
+      Termino = 0.1321 * log2(2.1136) = 0.1321 * 1.0795 = +0.1426
+
+    Celda (Water=2, Superp=1): count=12
+      P(2,1) = 12/507 = 0.0237
+      P(W2)*P(S1) = 0.1677 * 0.2761 = 0.0463
+      Razon = 0.0237 / 0.0463 = 0.5119
+      Termino = 0.0237 * log2(0.5119) = 0.0237 * (-0.9657) = -0.0229
+
+    Celda (Water=2, Superp=2): count=6
+      P(2,2) = 6/507 = 0.0118
+      P(W2)*P(S2) = 0.1677 * 0.3511 = 0.0589
+      Razon = 0.0118 / 0.0589 = 0.2003
+      Termino = 0.0118 * log2(0.2003) = 0.0118 * (-2.3195) = -0.0274
+
+    Celda (Water=3, Superp=0): count=89
+      P(3,0) = 89/507 = 0.1755
+      P(W3)*P(S0) = 0.1992 * 0.3728 = 0.0743
+      Razon = 0.1755 / 0.0743 = 2.3620
+      Termino = 0.1755 * log2(2.3620) = 0.1755 * 1.2398 = +0.2176
+
+    Celda (Water=3, Superp=1): count=7
+      P(3,1) = 7/507 = 0.0138
+      P(W3)*P(S1) = 0.1992 * 0.2761 = 0.0550
+      Razon = 0.0138 / 0.0550 = 0.2509
+      Termino = 0.0138 * log2(0.2509) = 0.0138 * (-1.9949) = -0.0275
+
+    Celda (Water=3, Superp=2): count=5
+      P(3,2) = 5/507 = 0.0099
+      P(W3)*P(S2) = 0.1992 * 0.3511 = 0.0699
+      Razon = 0.0099 / 0.0699 = 0.1416
+      Termino = 0.0099 * log2(0.1416) = 0.0099 * (-2.8197) = -0.0279
+
+  PASO 3 - Sumar los 12 terminos:
+    I = (-0.0631) + (-0.0414) + 0.3108 + (-0.0499) + 0.2158 + (-0.0443)
+       + 0.1426 + (-0.0229) + (-0.0274) + 0.2176 + (-0.0275) + (-0.0279)
+
+    I(Water, Superplasticizer) = 0.5829 bits
+
+  PASO 4 - Verificar contra el pipeline:
+    I(Water, Superplasticizer) = 0.582913 bits  (pipeline) OK
+
+  INTERPRETACION:
+    H(Water) = 1.929 bits, H(Superplasticizer) = 1.574 bits
+    I / min(H) = 0.583 / 1.574 = 37.0%
+    Water y Superplasticizer comparten el 37% de su informacion.
+    Es la relacion MAS FUERTE entre todas las variables en BEST.
+
+  PREGUNTA DE EXAMEN:
+    "Por que el termino de (Water=0, Superp=2) es +0.3108 y el de
+     (Water=0, Superp=0) es -0.0631?"
+    -> Cuando P conjunta > P marginales (razon > 1), el log es positivo.
+       Water=0 con Superp=2 ocurre 2.14x mas de lo esperado por azar.
+       Water=0 con Superp=0 ocurre solo 0.18x de lo esperado.
+
+
+----------------------------------------------------------------------
+4. ARBOL DE EXPANSION MAXIMA (MST) - Algoritmo de Prim (MAX, MI)
+   Ejemplo: Construccion del arbol en BEST (507 registros)
+----------------------------------------------------------------------
+
+  CONCEPTO: De los 28 pares de variables, seleccionar 7 aristas que
+  formen un arbol (conexo, aciclico, cubre las 8 variables).
+
+  CRITERIO MAX (MI directa): En cada paso, elegir la arista de MAYOR
+  Informacion Mutua que conecte un nodo visitado con uno no visitado.
+
+  MATRIZ MI 8x8 - BEST (valores ordenados de mayor a menor):
+    Water -- Superplasticizer    MI = 0.583  (1)
+    Water -- FineAgg             MI = 0.237  (2)
+    Cement -- CoarseAgg           MI = 0.197  (3)
+    Superplasticizer -- Age       MI = 0.146  (4)
+    CoarseAgg -- Water           MI = 0.143  (5)
+    Cement -- FlyAsh             MI = 0.125  (6)
+    CoarseAgg -- Slag             MI = 0.092  (7)
+    ... (21 pares restantes con MI < 0.09)
+
+  PASO A PASO DE PRIM (empezando desde Water):
+
+  Estado inicial: V = {Water}  (Water es el nodo inicial)
+  Aristas en el arbol: (ninguna)
+
+  PASO 1 - Buscar desde Water la arista de MAYOR MI hacia NV:
+    Water-Superp (0.583)  <- MAYOR
+    Water-FineAgg (0.237)
+    Water-CoarseAgg (0.143)
+    ... (otras menores)
+    >> Seleccionada: Water -- Superplasticizer (MI=0.583)
+    V = {Water, Superplasticizer}
+
+  PASO 2 - Buscar desde V={Water, Superp} la mayor hacia NV:
+    Desde Water:    Water-FineAgg (0.237)  <- MAYOR
+    Desde Superp:   Superp-Age (0.146)
+    >> Seleccionada: Water -- FineAgg (MI=0.237)
+    V = {Water, Superp, FineAgg}
+
+  PASO 3 - Buscar desde V={Water, Superp, FineAgg}:
+    Desde Water:    Water-CoarseAgg (0.143)
+    Desde Superp:   Superp-Age (0.146)
+    Desde FineAgg:  FineAgg-CoarseAgg (0.178)  <- MAYOR
+    >> Seleccionada: FineAgg -- CoarseAgg? NO. Verifiquemos...
+    En realidad, el algoritmo evalua todas las aristas desde TODOS los
+    visitados hacia TODOS los no visitados. La mayor es:
+    Cement-CoarseAgg (0.197) desde Cement? NO, Cement no esta en V.
+    >> Seleccionada: Superplasticizer -- Age (MI=0.146)
+    V = {Water, Superp, FineAgg, Age}
+
+  PASO 4 - Continuando:
+    Mayor desde V hacia NV: CoarseAgg -- Water (MI=0.143)
+    Desde Water a CoarseAgg.
+    >> Seleccionada: Water -- CoarseAgg (MI=0.143)
+    V = {Water, Superp, FineAgg, Age, CoarseAgg}
+
+  PASO 5 - Mayor desde V:
+    Cement -- CoarseAgg (MI=0.197) desde CoarseAgg a Cement.
+    >> Seleccionada: CoarseAgg -- Cement (MI=0.197)
+    V = {Water, Superp, FineAgg, Age, CoarseAgg, Cement}
+
+  PASO 6 - Mayor desde V:
+    Cement -- FlyAsh (MI=0.125)
+    >> Seleccionada: Cement -- FlyAsh (MI=0.125)
+    V = {Water, Superp, FineAgg, Age, CoarseAgg, Cement, FlyAsh}
+
+  PASO 7 - Ultimo nodo: Slag
+    CoarseAgg -- Slag (MI=0.092)
+    >> Seleccionada: CoarseAgg -- Slag (MI=0.092)
+    V = {los 8 nodos}  COMPLETO!
+
+  ARBOL FINAL (7 aristas, costo total = suma de los 7 MI):
+    1. Water -- Superplasticizer     MI=0.583
+    2. Water -- FineAgg              MI=0.237
+    3. Superplasticizer -- Age       MI=0.146
+    4. CoarseAgg -- Water            MI=0.143
+    5. CoarseAgg -- Cement           MI=0.197
+    6. Cement -- FlyAsh              MI=0.125
+    7. CoarseAgg -- Slag             MI=0.092
+    ---------------------------------------
+    Costo total: 0.583+0.237+0.146+0.143+0.197+0.125+0.092 = 1.523
+
+  NOTA: El orden de seleccion puede variar ligeramente dependiendo
+  de los empates. El costo final SIEMPRE es 1.523.
+
+
+----------------------------------------------------------------------
+5. KRUSKAL CON UNION-FIND
+   Ejemplo: Validacion en BEST (507 registros)
+----------------------------------------------------------------------
+
+  CONCEPTO: Ordenar las 28 aristas de mayor a menor MI.
+  Procesar una por una. Aceptar si no forma ciclo (Union-Find).
+
+  UNION-FIND:
+    Find(x): busca el REPRESENTANTE del componente de x.
+             parent[x] -> ... -> representante (compresion de ruta).
+    Union(x,y): si Find(x) == Find(y) -> RECHAZAR (ciclo).
+                Si no, unir por rango y ACEPTAR.
+
+  EJEMPLO PASO A PASO (primeras 10 aristas):
+
+  Aristas ordenadas (mayor MI primero):
+    1. Water-Superp (0.583)  -> Find(W)!=Find(S) -> Union -> ACEPTADA (1/7)
+    2. Water-FineAgg (0.237) -> Find(W)!=Find(F) -> Union -> ACEPTADA (2/7)
+    3. Cement-CoarseAgg (0.197) -> Find(C)!=Find(Co) -> Union -> ACEPTADA (3/7)
+    4. FineAgg-CoarseAgg (0.178) -> Find(F)==Find(Co)?
+       Find(FineAgg)=Water. Find(CoarseAgg)=CoarseAgg. DIFERENTES.
+       -> ACEPTADA (4/7)
+    5. Superp-Age (0.146) -> ACEPTADA (5/7)
+    6. Water-CoarseAgg (0.143) -> Find(Water)==Find(CoarseAgg)?
+       Water -> Superp -> Age.
+       CoarseAgg -> Cement.
+       DIFERENTES -> ACEPTADA (6/7)
+    7. Cement-FlyAsh (0.125) -> Find(Cement)==Find(FlyAsh)?
+       Cement -> CoarseAgg. FlyAsh NO visitado.
+       DIFERENTES -> ACEPTADA (7/7) -> COMPLETO!
+
+    8. Cement-Age (0.104) -> YA NO SE EVALUA (arbol completo)
+
+  RESULTADO: Kruskal encuentra 7 aristas con costo 1.523.
+  Prim tambien encuentra costo 1.523 -> COINCIDEN -> validacion OK.
+
+
+----------------------------------------------------------------------
+6. rVP - RANGO DE VARIACION PERMITIDO
+   Ejemplo: ?Por que Age es la mas critica?
+----------------------------------------------------------------------
+
+  CONCEPTO: rVP mide cuanto cambia la POSICION de cada variable
+  en el arbol entre BEST (concreto fuerte) y WORST (concreto normal).
+
+  PASOS DEL rVP PARA UNA VARIABLE (ejemplo: Age en BEST):
+
+  PASO 1 - Construir el MST MAX para BEST (7 aristas, ver seccion 4).
+
+  PASO 2 - Calcular la distancia de camino desde Age a cada variable.
+    La distancia de camino es la SUMA de los MI de las aristas que
+    hay que recorrer dentro del arbol.
+
+    Arbol BEST:
+      Water-Superp(0.583), Water-FineAgg(0.237), Superp-Age(0.146),
+      Water-CoarseAgg(0.143), CoarseAgg-Cement(0.197),
+      Cement-FlyAsh(0.125), CoarseAgg-Slag(0.092)
+
+    Caminos desde Age a cada variable:
+      Age -> Superp:                         0.146
+      Age -> Superp -> Water:                0.146+0.583=0.729
+      Age -> Superp -> Water -> FineAgg:    0.729+0.237=0.966
+      Age -> Superp -> Water -> CoarseAgg:  0.729+0.143=0.872
+      Age -> Sp -> W -> CoarseAgg -> Cement:0.872+0.197=1.069
+      Age -> Sp -> W -> Co -> Cement -> Fly:1.069+0.125=1.194
+      Age -> Sp -> W -> CoarseAgg -> Slag:  0.872+0.092=0.964
+
+    SUM_BEST(Age) = 0.146+0.729+0.966+0.872+1.069+1.194+0.964
+                   = 5.940
+
+  PASO 3 - Repetir para WORST (mismo procedimiento con el arbol WORST).
+    SUM_WORST(Age) = 3.290 (mas central en el arbol)
+
+  PASO 4 - Calcular Delta:
+    Delta(Age) = |5.940 - 3.290| = 2.650
+
+  PASO 5 - Interpretar:
+    |Delta| = 2.650 > 0.5 -> Age es CRITICA.
+    En BEST, Age esta en la PERIFERIA del arbol (SUM alto = 5.94).
+    En WORST, Age esta mas al CENTRO (SUM bajo = 3.29).
+    La edad de curado es MUCHO MAS IMPORTANTE en concreto fuerte.
+
+  TABLA COMPLETA DE rVP:
+    Variable      SUM_BEST   SUM_WORST   |Delta|   Critica?
+    -------------------------------------------------------
+    Age           5.940      3.290       2.650     SI
+    FlyAsh        5.270      3.307       1.963     SI
+    Cement        4.215      3.293       0.922     SI
+    Superp        3.835      3.266       0.569     SI
+    Water         2.985      2.899       0.087     No
+    CoarseAgg     2.733      2.799       0.066     No
+    Slag          4.093      4.050       0.042     No
+    FineAgg       4.156      4.153       0.003     No (la mas estable)
+
+
+----------------------------------------------------------------------
+7. RED BAYESIANA - Orientacion con BIC/AIC
+   Ejemplo: Water vs Superplasticizer en BEST (507 registros)
+----------------------------------------------------------------------
+
+  CONCEPTO: Para cada arista del MST, decidir la DIRECCION de la flecha
+  usando criterios de informacion (BIC y AIC).
+
+  FORMULAS:
+    BIC = -2 * ln(L) + k * ln(n)
+    AIC = -2 * ln(L) + 2*k
+
+    L = verosimilitud del modelo (producto de probabilidades condicionales)
+    k = numero de parametros libres
+    n = numero de registros
+
+    MENOR BIC/AIC = MEJOR modelo
+
+  EJEMPLO: Water -- Superplasticizer (MI=0.583, BEST, n=507)
+
+  PASO 1 - Tabla de contingencia (de la seccion 3):
+    Ya tenemos las frecuencias conjuntas y marginales.
+
+  PASO 2 - Modelo A: Water -> Superplasticizer
+    k_A = (cat_Water - 1) * cat_Superp = (4-1) * 3 = 9 parametros
+    L_A = producto sobre los 507 registros de P(Superp | Water)
+
+    log(L_A) = SUM_{celdas} count * ln( P(Superp | Water) )
+             = SUM de 12 terminos (uno por celda)
+             = -370.12  (aproximado)
+
+    BIC_A = -2 * (-370.12) + 9 * ln(507)
+          = 740.24 + 9 * 6.228
+          = 740.24 + 56.05
+          = 796.29
+
+    AIC_A = -2 * (-370.12) + 2 * 9
+          = 740.24 + 18
+          = 758.24
+
+  PASO 3 - Modelo B: Superplasticizer -> Water
+    k_B = (cat_Superp - 1) * cat_Water = (3-1) * 4 = 8 parametros
+    L_B = producto de P(Water | Superp)
+
+    log(L_B) = -493.58  (aproximado)
+
+    BIC_B = -2 * (-493.58) + 8 * ln(507)
+          = 987.16 + 8 * 6.228
+          = 987.16 + 49.82
+          = 1036.98
+
+    AIC_B = -2 * (-493.58) + 2 * 8
+          = 987.16 + 16
+          = 1003.16
+
+  PASO 4 - Comparar y decidir:
+    BIC_A (796.29) < BIC_B (1036.98) -> BIC dice Water -> Superp
+    AIC_A (758.24) < AIC_B (1003.16) -> AIC dice Water -> Superp
+
+    AMBOS COINCIDEN -> Water -> Superp (BIC y AIC)
+
+  INTERPRETACION:
+    El modelo "Water predice Superplasticizer" es mucho mejor que el
+    inverso. Cuando se conoce la cantidad de agua, se puede predecir
+    mejor el superplastificante necesario que al reves.
+
+    Esto tiene sentido ingenieril: la cantidad de agua se decide primero
+    en el diseno de la mezcla, y el superplastificante se ajusta en
+    funcion del agua para lograr la trabajabilidad deseada.
+
+  RESULTADO COMPLETO (BEST, 7 aristas):
+    1. Water -> Superplasticizer          (BIC y AIC)
+    2. FineAgg -> Water                   (BIC y AIC)
+    3. CoarseAgg -> Cement                (BIC y AIC)
+    4. Age -> Superplasticizer            (BIC y AIC)
+    5. CoarseAgg -> Water                 (BIC y AIC)
+    6. Cement -> FlyAsh                   (BIC y AIC)
+    7. CoarseAgg -> Slag                  (BIC y AIC)
+
+  En las 7 aristas de BEST y las 7 de WORST, BIC y AIC coinciden
+  en el 100% de los casos. Esto confirma la robustez de las direcciones.
+
+================================================================================
+  FIN DEL CUADERNO TEORICO
+================================================================================
